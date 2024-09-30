@@ -7,6 +7,7 @@ from .data import connect_or_download, dump_schema, run_queries
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        prog='python -m mycota',
         description='Download and query Wikipedia mycota morphology database. Once the database is '
         'created, this program opens it in read-only mode.',
     )
