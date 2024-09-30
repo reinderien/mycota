@@ -12,9 +12,7 @@ logger = logging.getLogger('data')
 
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.loc[                # Drop all-NaN columns
-        :, ~df.isna().all(),
-    ].astype(pd.StringDtype())  # Use new dtype
+    df = df.astype(pd.StringDtype())  # Use new dtype
 
     # Strip leading and trailing apostrophes from name
     df['name'] = df['name'].str.replace(
@@ -22,6 +20,17 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
         repl=r'\1',
         regex=True,
     )
+
+    # Replace NaN-likes with NaN
+    as_lower = df.apply(lambda s: s.str.lower(), axis=1)
+    df[(as_lower == 'no') | (as_lower == 'na') | (as_lower == 'none')] = None
+
+    # Replace empty strings with NaN
+    lengths = df.apply(lambda s: s.str.len(), axis=1)
+    df[lengths == 0] = None
+
+    # Drop all-NaN columns
+    df = df.loc[:, ~df.isna().all()]
 
     return df
 

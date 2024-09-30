@@ -28,4 +28,9 @@ select title, name, whichGills from mycota where lower(name) like '%tricholoma%'
 select title, sporePrintColor, sporePrintColor2 from mycota where hymeniumType = 'gleba';
 
 select count(1), ecologicalType from mycota where stipeCharacter is not null group by ecologicalType;
+
+select title, eat from (
+    select title, lower(coalesce(howEdible, '') || ' ' || coalesce(howEdible2, '')) as eat
+    from mycota
+) where eat like '%choice%';
 ```
