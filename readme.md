@@ -19,7 +19,7 @@ python -m mycota -h
 Example queries
 ---------------
 
-```sqlite-sql
+```sql
 select title, name, whichGills from mycota where lower(name) like '%tricholoma%';
 
 -- Will occlude some columns based on your terminal width
