@@ -20,9 +20,9 @@ ARTICLE_NAMESPACE = 0
 
 
 def query_mediawiki(
-    session: requests.Session, warn: bool, log: bool, subquery: dict[str, typing.Any],
+    session: requests.Session, warn: bool, log: bool, subquery: dict[str, str | int],
 ) -> typing.Iterator[dict[str, typing.Any]]:
-    query = {
+    query: dict[str, str | int] = {
         # https://www.mediawiki.org/wiki/API:JSON_version_2
         'format': 'json',
         'formatversion': 2,
@@ -30,7 +30,7 @@ def query_mediawiki(
         'action': 'query',
     } | subquery
     # https://www.mediawiki.org/wiki/Special:MyLanguage/API:Continue
-    prev_continue = {}
+    prev_continue: dict[str, str | int] = {}
 
     for chunk in itertools.count(1):
         with session.get(
@@ -39,15 +39,17 @@ def query_mediawiki(
             resp.raise_for_status()
             doc = resp.json()
 
+        if log:
+            logger.info('%s: %d chunks', subquery['prop'], chunk)
         if warn:
             warnings = doc.get('warnings')
             if warnings:
                 logger.warning(pprint.pformat(warnings))
+        error = doc.get('error')
+        if error:
+            logger.error(pprint.pformat(error))
 
-        pages = doc['query']['pages']
-        if log:
-            logger.info('%s: %d chunks', subquery['prop'], chunk)
-        yield from pages
+        yield from doc['query']['pages']
 
         if doc.get('batchcomplete'):
             return
@@ -58,13 +60,13 @@ def get_transclusions(
     session: requests.Session,
     template: str,
     chunk_size: int = 500,  # max
-) -> typing.Iterator[dict[str, typing.Any]]:
+) -> typing.Iterator[int]:
     """
     Stream out dictionaries of thin page references that have used (transcluded) the given
     template. Will work every chunk_size rows to fetch more records.
     """
 
-    query = {
+    query: dict[str, str | int] = {
         # https://www.mediawiki.org/wiki/API:Query
         'titles': 'Template:' + template,
         'prop': 'transcludedin',
@@ -82,7 +84,7 @@ def get_transclusions(
 
 def get_template(
     session: requests.Session,
-    pages: typing.Iterable[dict[str, typing.Any]],
+    pages: typing.Iterable[int],
     chunk_size: int = 50,  # max
 ) -> typing.Iterator[dict[str, typing.Any]]:
     """
@@ -130,7 +132,7 @@ def template_xml_to_dict(tree: dict[str, typing.Any], template_name: str) -> dic
     return {}
 
 
-def fetch_all(template: str) -> typing.Iterator[dict[str, typing.Any]]:
+def fetch_all(template: str) -> typing.Iterator[dict[str, str | int]]:
     """
     Make a session for cookies, and send off as many API requests as needed to lazy-yield
     property dictionaries from every page transcluding the named template.

@@ -67,6 +67,6 @@ def dump_schema(conn: sqlite3.Connection) -> str:
 
 def run_queries(conn: sqlite3.Connection, queries: typing.Iterable[str]) -> None:
     pd.options.display.max_columns = 0
-    pd.options.display.max_rows = None
+    pd.options.display.max_rows = None  # type: ignore  # stub is wrong
     for query in queries:
         print(pd.read_sql_query(sql=query, con=conn))
