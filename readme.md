@@ -33,4 +33,8 @@ select title, eat from (
     select title, lower(coalesce(howEdible, '') || ' ' || coalesce(howEdible2, '')) as eat
     from mycota
 ) where eat like '%choice%';
+
+-- Feeling lucky?
+select title, howEdible, howEdible2 from mycota 
+where howEdible is not null and howEdible2 is not null and whichGills is null and capShape is null;
 ```
