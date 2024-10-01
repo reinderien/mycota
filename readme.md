@@ -38,3 +38,31 @@ select title, eat from (
 select title, howEdible, howEdible2 from mycota 
 where howEdible is not null and howEdible2 is not null and whichGills is null and capShape is null;
 ```
+
+Schema
+------
+
+As of this writing, the output of `-s` is
+
+```sql
+CREATE TABLE "mycota" (
+"pageid" INTEGER,
+  "title" TEXT,
+  "name" TEXT,
+  "whichGills" TEXT,
+  "capShape" TEXT,
+  "hymeniumType" TEXT,
+  "stipeCharacter" TEXT,
+  "ecologicalType" TEXT,
+  "sporePrintColor" TEXT,
+  "howEdible" TEXT,
+  "howEdible2" TEXT,
+  "whichGills2" TEXT,
+  "capShape2" TEXT,
+  "sporePrintColor2" TEXT,
+  "ecologicalType2" TEXT,
+  "stipeCharacter2" TEXT,
+  "whichGills3" TEXT,
+  "color" TEXT
+)
+```
