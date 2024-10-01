@@ -23,7 +23,11 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
 
     # Replace NaN-likes with NaN
     as_lower = df.apply(lambda s: s.str.lower(), axis=1)
-    df[(as_lower == 'no') | (as_lower == 'na') | (as_lower == 'none')] = None
+    df[  (as_lower == 'no')
+       | (as_lower == 'na')
+       | (as_lower == 'n/a')
+       | (as_lower == 'none')
+    ] = None
 
     # Replace empty strings with NaN
     lengths = df.apply(lambda s: s.str.len(), axis=1)
@@ -63,6 +67,20 @@ def dump_schema(conn: sqlite3.Connection) -> str:
         return res
     finally:
         cur.close()
+
+
+def dump_cols(conn: sqlite3.Connection) -> typing.Iterable[str]:
+    pd.options.display.max_rows = None  # type: ignore  # stub is wrong
+    cur = conn.execute(
+        "select name from pragma_table_info('mycota')"
+    )
+    for column, in cur.fetchall():
+        if column not in {'pageid', 'name', 'title'}:
+            df = pd.read_sql_query(
+                sql=f'select {column}, count(*) from mycota group by {column} order by {column}',
+                con=conn,
+            )
+            yield str(df)
 
 
 def run_queries(conn: sqlite3.Connection, queries: typing.Iterable[str]) -> None:
