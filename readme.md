@@ -66,7 +66,7 @@ CREATE TABLE "mycota" (
 )
 ```
 
-and the output of `-c` is
+and the output of `-c` (somewhat covering the same feature as [the Template Parameters Bot](https://bambots.brucemyers.com/TemplateParam.php?wiki=enwiki&template=Mycomorphbox)) is
 
 ```none
      whichGills  count(*)
