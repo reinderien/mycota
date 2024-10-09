@@ -19,24 +19,45 @@ python -m mycota -h
 Example queries
 ---------------
 
+Basic SQLite queries:
+
 ```sql
 select title, name, whichGills from mycota where lower(name) like '%tricholoma%';
 
 -- Will occlude some columns based on your terminal width
  select * from mycota where whichGills = 'free';
 
-select title, sporePrintColor, sporePrintColor2 from mycota where hymeniumType = 'gleba';
+select title, sporePrintColor1, sporePrintColor2 from mycota where hymeniumType = 'gleba';
 
 select count(1), ecologicalType from mycota where stipeCharacter is not null group by ecologicalType;
 
 select title, eat from (
-    select title, lower(coalesce(howEdible, '') || ' ' || coalesce(howEdible2, '')) as eat
+    select title, lower(coalesce(howEdible1, '') || ' ' || coalesce(howEdible2, '')) as eat
     from mycota
 ) where eat like '%choice%';
 
 -- Feeling lucky?
-select title, howEdible, howEdible2 from mycota 
-where howEdible is not null and howEdible2 is not null and whichGills is null and capShape is null;
+select title, howEdible1, howEdible2 from mycota 
+where howEdible1 is not null and howEdible2 is not null and whichGills is null and capShape is null;
+```
+
+Full text search queries are also possible using the syntax from the
+[fts5 module](https://sqlite.org/fts5.html#full_text_query_syntax).
+
+Briefly,
+
+- it's a query sub-language that exists in string literals;
+- all query keywords are case-sensitive CAPITALS;
+- all data are case-insensitive;
+- it does not perform substring searches; and
+- you can search over multiple (even all) columns by writing the table name before `match`.
+
+```sql
+select title, howEdible from mycota where howEdible match 'NEAR(choice deadly)';
+
+select title, howEdible from mycota where mycota match 'esculenta';
+
+select title, howEdible from mycota where mycota match '({name title}: amanita) AND ({howEdible}: edible)' 
 ```
 
 Schema
