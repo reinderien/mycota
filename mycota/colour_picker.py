@@ -32,17 +32,17 @@ def project_grid(normal: np.ndarray) -> np.ndarray:
     ggbb = np.stack(
         np.meshgrid(channel, channel), axis=-1,
     )
-    rr = 255 / normal[0] - ggbb @ (normal[1:] / normal[0])
+    rr = 255/normal[0] - ggbb@(normal[1:]/normal[0])
     rgb = np.concatenate((rr[..., np.newaxis], ggbb), axis=2)
     rgb[(rgb > 255).any(axis=-1)] = np.nan
     return rgb
 
 
 def project_irregular(colours: np.ndarray, normal: np.ndarray) -> np.ndarray:
-    offset = 255 / normal[0], 0, 0
+    offset = 255/normal[0], 0, 0
     v = colours - offset
     w = normal
-    return offset + v - np.outer(v @ w, w/w.dot(w))
+    return offset + v - np.outer(v@w, w/w.dot(w))
 
 
 def plot_2d(
