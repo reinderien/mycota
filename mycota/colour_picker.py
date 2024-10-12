@@ -16,30 +16,41 @@ def triples_to_hex(triples: typing.Iterable[tuple[int, int, int]]) -> tuple[str,
     )
 
 
-def fit_plane(colours: np.ndarray) -> np.ndarray:
-    # Plane of best fit to form ax + by + cz = 255
-    normal, (residual,), rank, singular = np.linalg.lstsq(
-        a=colours, b=np.full(len(colours), fill_value=255), rcond=None,
+def fit_plane(
+    colours: np.ndarray,
+) -> tuple[np.ndarray, float]:
+    offset = -128
+    rhs = 255
+    # Plane of best fit to form ax + by + cz + 256 = 255
+    sel = [0, 6, 12, 18, -1]
+    normal, residuals, rank, singular = np.linalg.lstsq(
+        a=colours[sel] + offset,
+        b=np.full(shape=len(sel), fill_value=rhs),
+        rcond=None,
     )
     if rank != 3:
         raise ValueError(f'Deficient rank {rank}')
-    print('Colour plane of best fit: 255 ~ (r g b) .', normal)
-    return normal
+
+    # (rgb + offset)@norm = 255
+    # rgb@norm = 255 - offset*norm.sum()
+    rhs -= offset*normal.sum()
+    print(f'Colour plane of best fit: (r g b) .', normal, '~', rhs)
+    return normal, rhs
 
 
-def project_grid(normal: np.ndarray) -> np.ndarray:
+def project_grid(normal: np.ndarray, rhs: float) -> np.ndarray:
     channel = np.linspace(start=0, stop=255, num=40)
     ggbb = np.stack(
         np.meshgrid(channel, channel), axis=-1,
     )
-    rr = 255/normal[0] - ggbb@(normal[1:]/normal[0])
+    rr = rhs/normal[0] - ggbb@(normal[1:]/normal[0])
     rgb = np.concatenate((rr[..., np.newaxis], ggbb), axis=2)
     rgb[(rgb > 255).any(axis=-1)] = np.nan
     return rgb
 
 
-def project_irregular(colours: np.ndarray, normal: np.ndarray) -> np.ndarray:
-    offset = 255/normal[0], 0, 0
+def project_irregular(colours: np.ndarray, normal: np.ndarray, rhs: float) -> np.ndarray:
+    offset = rhs/normal[0], 0, 0
     v = colours - offset
     w = normal
     return offset + v - np.outer(v@w, w/w.dot(w))
@@ -52,7 +63,10 @@ def plot_2d(
 ) -> plt.Axes:
     ax: plt.Axes
     fig, ax = plt.subplots()
-    rgb = np.nan_to_num(rgb_grid, nan=100).astype(np.uint8)  # dark grey
+    rgb = np.full_like(rgb_grid, fill_value=100)  # dark grey
+    mask = ((rgb_grid >= 0) & (rgb_grid <= 255)).all(axis=-1)
+    rgb[mask] = rgb_grid[mask]
+    rgb = rgb.astype(np.uint8)
     ax.imshow(rgb, extent=(0, 255, 0, 255), origin='lower')
     ax.scatter(colours[:, 1], colours[:, 2], c=colour_strs)
     ax.scatter(
@@ -122,9 +136,9 @@ def demo() -> None:
     }
 
     colours = dict_to_array(colour_dict)
-    normal = fit_plane(colours)
-    rgb_float = project_grid(normal)
-    projected = project_irregular(colours=colours, normal=normal)
+    normal, rhs = fit_plane(colours=colours)
+    rgb_float = project_grid(normal=normal, rhs=rhs)
+    projected = project_irregular(colours=colours, normal=normal, rhs=rhs)
     colour_strs = triples_to_hex(triples=colour_dict.values())
     proj_strs = triples_to_hex(triples=projected.clip(min=0, max=255).astype(np.uint8))
 
