@@ -286,6 +286,41 @@ def plot_delaunay_gouraud(
     return ax
 
 
+def demo_planar(
+    colour_dict: dict[str, bytes],
+    colours: np.ndarray,
+    colour_strs: typing.Sequence[str],
+) -> None:
+    normal, rhs = fit_plane(colours=colours)
+    rgb_float = project_grid(normal=normal, rhs=rhs)
+    projected = project_irregular(colours=colours, normal=normal, rhs=rhs)
+    proj_strs = triples_to_hex(triples=projected.clip(min=0, max=255).astype(np.uint8))
+
+    ax2 = plot_2d(colours=colours, projected=projected, rgb_grid=rgb_float,
+                  colour_strs=colour_strs, proj_strs=proj_strs)
+    ax3 = plot_3d(colours=colours, projected=projected, colour_dict=colour_dict,
+                  colour_strs=colour_strs, proj_strs=proj_strs)
+    plot_correspondences(ax2=ax2, ax3=ax3, colours=colours, projected=projected)
+
+
+def demo_reduction(
+    colour_dict: dict[str, bytes],
+    colours: np.ndarray,
+    colour_strs: typing.Sequence[str],
+) -> None:
+    projection, projected = fit_matrix_linprog(
+        colour_dict=colour_dict, colours=colours,
+        p00='black',
+        p01='purple',
+        p10='yellow-orange',
+        p11='white',
+    )
+    plot_delaunay_gouraud(
+        colours=colours, colour_dict=colour_dict, colour_strs=colour_strs,
+        projected=projected,
+    )
+
+
 def demo() -> None:
     # from https://en.wikipedia.org/w/index.php?title=Template:Mycomorphbox&action=edit
     colour_dict = {
@@ -314,17 +349,9 @@ def demo() -> None:
 
     colours = dict_to_array(colour_dict)
     colour_strs = triples_to_hex(triples=colour_dict.values())
-    projection, projected = fit_matrix_linprog(
-        colour_dict=colour_dict, colours=colours,
-        p00='black',
-        p01='purple',
-        p10='yellow-orange',
-        p11='white',
-    )
-    plot_delaunay_gouraud(
-        colours=colours, colour_dict=colour_dict, colour_strs=colour_strs,
-        projected=projected,
-    )
+
+    # demo_planar(colour_dict=colour_dict, colours=colours, colour_strs=colour_strs)
+    demo_reduction(colour_dict=colour_dict, colours=colours, colour_strs=colour_strs)
 
     plt.show()
 
