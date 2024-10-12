@@ -1,8 +1,10 @@
 import typing
 
 import numpy as np
+import scipy.sparse
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.optimize import milp, Bounds, LinearConstraint
 
 
 def dict_to_array(colours: dict[str, bytes]) -> np.ndarray:
@@ -38,6 +40,99 @@ def fit_plane(
     return normal, rhs
 
 
+def fit_matrix_from_map(
+    colour_dict: dict[str, bytes], colours: np.ndarray,
+    mapping: dict[str, tuple[float, float]],
+) -> np.ndarray:
+    name_to_index = dict(zip(colour_dict.keys(), range(len(colour_dict))))
+    a = np.hstack((  # 4*4
+        np.array([
+            colours[name_to_index[k]]
+            for k in mapping.keys()
+        ]),
+        np.ones((len(mapping), 1)),
+    ))
+    # x is 4*2
+    b = np.array(tuple(mapping.values()))
+    projection, residual, rank, singular = np.linalg.lstsq(a, b, rcond=None)
+    if rank != 4:
+        raise ValueError(f'Deficient rank {rank}')
+    return projection
+
+
+def fit_matrix_linprog(
+    colour_dict: dict[str, bytes], colours: np.ndarray,
+    p00: str, p01: str, p10: str, p11: str,
+) -> np.ndarray:
+    name_to_index = dict(zip(colour_dict.keys(), range(len(colour_dict))))
+    corner_idx = [name_to_index[k] for k in (p00, p01, p10, p11)]
+    corner_rgb = colours[corner_idx, :]
+    off_corner_rgb = np.array([
+        colours[i]
+        for k, i in name_to_index.items()
+        if k not in {p00, p01, p10, p11}
+    ])
+
+    '''
+    variables:
+    a e
+    b f
+    c g
+    d h
+    and xy for each of corners "p"
+    flattened as:
+    abcd efgh x00 01 10 11 y00 01 10 11
+
+    objective:
+        minimize ap00x + bp00y + cp00z + d
+        minimize ep00x + fp00y + gp00z + h
+        minimize ap01x + bp01y + cp01z + d
+        maximize ep01x + fp01y + gp01z + h
+        maximize ap10x + bp10y + cp10z + d
+        minimize ep10x + fp10y + gp10z + h
+        maximize ap11x + bp11y + cp11z + d
+        maximize ep11x + fp11y + gp11z + h
+
+    constraints:
+        relate ah and p
+        every colour projected must be between 0 and 1
+    '''
+
+    # rgb1 0000 -1 000 0000 = 0
+    # rgb1 0000  0-100 0000 = 0
+    # ...
+    affine = np.hstack((corner_rgb, np.ones((len(corner_idx), 1))))
+    a = scipy.sparse.hstack((
+        scipy.sparse.block_diag((affine, affine), format='bsr'),
+        -scipy.sparse.eye_array(m=2*len(corner_idx), format='dia'),
+    ), format='csc')
+    corner_constraint = LinearConstraint(A=a, lb=0, ub=0)
+
+    # 0 <= rgb1 0000 00000000 <= 1
+    # ...
+    # 0 <= 0000 rgb1 00000000 <= 1
+    affine = np.hstack((off_corner_rgb, np.ones((len(off_corner_rgb), 1))))
+    a = scipy.sparse.block_diag((affine, affine), format='bsr')
+    a.resize((a.shape[0], 4*len(corner_idx)))
+    off_corner_constraint = LinearConstraint(A=a, lb=0, ub=1)
+
+    result = milp(
+        # a-h       px         py
+        c=(0,)*8 + (1,1,-1,-1, 1,-1,1,-1),
+        integrality=0,
+        bounds=Bounds(
+            #   a-h           pxy
+            lb=(-np.inf,)*8 + (0,)*8,
+            ub=(+np.inf,)*8 + (1,)*8,
+        ),
+        constraints=(corner_constraint, off_corner_constraint),
+    )
+    if not result.success:
+        raise ValueError(result.message)
+    projection, corners = result.x.reshape((2, 2, 4))
+    return projection.T
+
+
 def project_grid(normal: np.ndarray, rhs: float) -> np.ndarray:
     channel = np.linspace(start=0, stop=255, num=40)
     ggbb = np.stack(
@@ -54,6 +149,12 @@ def project_irregular(colours: np.ndarray, normal: np.ndarray, rhs: float) -> np
     v = colours - offset
     w = normal
     return offset + v - np.outer(v@w, w/w.dot(w))
+
+
+def project_reduction(colours: np.ndarray, projection: np.ndarray) -> np.ndarray:
+    return np.hstack((
+        colours, np.ones((len(colours), 1)),
+    )) @ projection
 
 
 def plot_2d(
@@ -111,6 +212,22 @@ def plot_correspondences(
         )
 
 
+def plot_reduction(
+    colour_dict: dict[str, bytes,],
+    colour_strs: typing.Sequence[str],
+    projected: np.ndarray,
+) -> plt.Axes:
+    fig, ax = plt.subplots()
+    ax.scatter(
+        projected[:, 0],
+        projected[:, 1],
+        c=colour_strs,
+    )
+    for name, pos in zip(colour_dict.keys(), projected):
+        ax.text(*pos, name)
+    return ax
+
+
 def demo() -> None:
     # from https://en.wikipedia.org/w/index.php?title=Template:Mycomorphbox&action=edit
     colour_dict = {
@@ -138,17 +255,18 @@ def demo() -> None:
     }
 
     colours = dict_to_array(colour_dict)
-    normal, rhs = fit_plane(colours=colours)
-    rgb_float = project_grid(normal=normal, rhs=rhs)
-    projected = project_irregular(colours=colours, normal=normal, rhs=rhs)
     colour_strs = triples_to_hex(triples=colour_dict.values())
-    proj_strs = triples_to_hex(triples=projected.clip(min=0, max=255).astype(np.uint8))
-
-    ax2 = plot_2d(colours=colours, projected=projected, rgb_grid=rgb_float,
-                  colour_strs=colour_strs, proj_strs=proj_strs)
-    ax3 = plot_3d(colours=colours, projected=projected, colour_dict=colour_dict,
-                  colour_strs=colour_strs, proj_strs=proj_strs)
-    plot_correspondences(ax2=ax2, ax3=ax3, colours=colours, projected=projected)
+    projection = fit_matrix_linprog(
+        colour_dict=colour_dict, colours=colours,
+        p00='black',
+        p01='purple',
+        p10='yellow-orange',
+        p11='white',
+    )
+    projected = project_reduction(colours=colours, projection=projection)
+    plot_reduction(
+        colour_dict=colour_dict, colour_strs=colour_strs, projected=projected,
+    )
 
     plt.show()
 
