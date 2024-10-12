@@ -80,13 +80,15 @@ def plot_2d(
 
 
 def plot_3d(
-    colours: np.ndarray, projected: np.ndarray,
+    colours: np.ndarray, projected: np.ndarray, colour_dict: dict[str, bytes],
     colour_strs: tuple[str, ...], proj_strs: tuple[str, ...],
 ) -> Axes3D:
     fig, ax = plt.subplots(subplot_kw={'projection': '3d'})
     ax: Axes3D
     ax.scatter3D(*colours.T, c=colour_strs, depthshade=False)
     ax.scatter3D(*projected.T, c=proj_strs, depthshade=False)
+    for name, pos in zip(colour_dict.keys(), colours):
+        ax.text(*pos, name)
     ax.set_xlabel('red')
     ax.set_ylabel('green')
     ax.set_zlabel('blue')
@@ -144,7 +146,7 @@ def demo() -> None:
 
     ax2 = plot_2d(colours=colours, projected=projected, rgb_grid=rgb_float,
                   colour_strs=colour_strs, proj_strs=proj_strs)
-    ax3 = plot_3d(colours=colours, projected=projected,
+    ax3 = plot_3d(colours=colours, projected=projected, colour_dict=colour_dict,
                   colour_strs=colour_strs, proj_strs=proj_strs)
     plot_correspondences(ax2=ax2, ax3=ax3, colours=colours, projected=projected)
 
