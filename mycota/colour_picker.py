@@ -65,12 +65,22 @@ def fit_matrix_linprog(
     p00: str, p01: str, p10: str, p11: str,
 ) -> np.ndarray:
     name_to_index = dict(zip(colour_dict.keys(), range(len(colour_dict))))
-    corner_idx = [name_to_index[k] for k in (p00, p01, p10, p11)]
+
+    places = ((0,0), (0,1), (1,0), (1,1))
+    corner_names = (p00, p01, p10, p11)
+    directions = [
+        1 - 2*i
+        for axis in zip(*places)
+        for i in axis
+    ]
+    corner_set = frozenset(corner_names)
+
+    corner_idx = [name_to_index[k] for k in corner_names]
     corner_rgb = colours[corner_idx, :]
     off_corner_rgb = np.array([
         colours[i]
         for k, i in name_to_index.items()
-        if k not in {p00, p01, p10, p11}
+        if k not in corner_set
     ])
 
     '''
@@ -112,25 +122,25 @@ def fit_matrix_linprog(
     # ...
     # 0 <= 0000 rgb1 00000000 <= 1
     affine = np.hstack((off_corner_rgb, np.ones((len(off_corner_rgb), 1))))
-    a = scipy.sparse.block_diag((affine, affine), format='bsr')
-    a.resize((a.shape[0], 4*len(corner_idx)))
+    a = scipy.sparse.block_diag((affine, affine), format='csc')
+    a.resize((a.shape[0], 2*(4 + len(corner_idx))))
     off_corner_constraint = LinearConstraint(A=a, lb=0, ub=1)
 
     result = milp(
-        # a-h       px         py
-        c=(0,)*8 + (1,1,-1,-1, 1,-1,1,-1),
+        # a-h     px, py
+        c=[0]*8 + directions,
         integrality=0,
         bounds=Bounds(
             #   a-h           pxy
-            lb=(-np.inf,)*8 + (0,)*8,
-            ub=(+np.inf,)*8 + (1,)*8,
+            lb=(-np.inf,)*8 + (0,)*(2*len(corner_idx)),
+            ub=(+np.inf,)*8 + (1,)*(2*len(corner_idx)),
         ),
         constraints=(corner_constraint, off_corner_constraint),
     )
     if not result.success:
         raise ValueError(result.message)
-    projection, corners = result.x.reshape((2, 2, 4))
-    return projection.T
+    projection, corners = np.split(result.x, (8,))
+    return projection.reshape((2, -1)).T
 
 
 def project_grid(normal: np.ndarray, rhs: float) -> np.ndarray:
@@ -212,12 +222,47 @@ def plot_correspondences(
         )
 
 
-def plot_reduction(
-    colour_dict: dict[str, bytes,],
+def plot_reduction_planar(
+    colour_dict: dict[str, bytes],
     colour_strs: typing.Sequence[str],
+    projection: np.ndarray,
     projected: np.ndarray,
 ) -> plt.Axes:
     fig, ax = plt.subplots()
+
+    '''
+    Solve backward for colour plane:
+    If 
+    [rgb1] [ae] = [uv]
+    [rgb1] [bf]   [uv]
+    [rgb1] [cg]   [uv]
+    [rgb1] [dh]   [uv]
+    [rgb1]        [uv]
+    [rgb1]        [uv]
+    and abcdefgh and uv are known,
+    [abcd][rrrrrrr] = [uuuuuuu]
+    [efgh][ggggggg]   [vvvvvvv]
+          [bbbbbbb]
+          [1111111]
+    '''
+    uv_series = np.linspace(start=0, stop=1, num=11)
+    uv = np.stack(
+        np.meshgrid(uv_series, uv_series),
+        axis=0,
+    )
+    deprojected, residuals, rank, singular = np.linalg.lstsq(
+        a=projection.T, b=uv.reshape((2, -1)), rcond=None,
+    )
+    if rank != 2:
+        raise ValueError(f'Deficient rank {rank}')
+    rgb = (
+        deprojected[:3]
+        .clip(min=0, max=255).round()
+        .astype(np.uint8)
+        .T.reshape(uv.shape[1:] + (3,))
+    )
+
+    ax.imshow(rgb, extent=(0, 1, 0, 1), origin='lower')
     ax.scatter(
         projected[:, 0],
         projected[:, 1],
@@ -264,8 +309,9 @@ def demo() -> None:
         p11='white',
     )
     projected = project_reduction(colours=colours, projection=projection)
-    plot_reduction(
-        colour_dict=colour_dict, colour_strs=colour_strs, projected=projected,
+    plot_reduction_planar(
+        colour_dict=colour_dict, colour_strs=colour_strs,
+        projection=projection, projected=projected,
     )
 
     plt.show()
