@@ -64,83 +64,76 @@ def fit_matrix_linprog(
     colour_dict: dict[str, bytes], colours: np.ndarray,
     p00: str, p01: str, p10: str, p11: str,
 ) -> np.ndarray:
-    name_to_index = dict(zip(colour_dict.keys(), range(len(colour_dict))))
-
-    places = ((0,0), (0,1), (1,0), (1,1))
+    n = len(colour_dict)
+    places = np.array((
+        (0,0), (0,1), (1,0), (1,1),
+    ))
     corner_names = (p00, p01, p10, p11)
-    directions = [
-        1 - 2*i
-        for axis in zip(*places)
-        for i in axis
-    ]
-    corner_set = frozenset(corner_names)
-
-    corner_idx = [name_to_index[k] for k in corner_names]
-    corner_rgb = colours[corner_idx, :]
-    off_corner_rgb = np.array([
-        colours[i]
-        for k, i in name_to_index.items()
-        if k not in corner_set
-    ])
+    directions = 1 - 2*places.T
+    name_to_index = dict(zip(colour_dict.keys(), range(len(colour_dict))))
+    corner_idx = np.array([name_to_index[k] for k in corner_names])
 
     '''
     variables:
     a e
     b f
     c g
-    d h
-    and xy for each of corners "p"
+    d h,
+    u for all points,
+    v for all points    
     flattened as:
-    abcd efgh x00 01 10 11 y00 01 10 11
+    abcd efgh uuuu vvvv
 
     objective:
-        minimize ap00x + bp00y + cp00z + d
-        minimize ep00x + fp00y + gp00z + h
-        minimize ap01x + bp01y + cp01z + d
-        maximize ep01x + fp01y + gp01z + h
-        maximize ap10x + bp10y + cp10z + d
-        minimize ep10x + fp10y + gp10z + h
-        maximize ap11x + bp11y + cp11z + d
-        maximize ep11x + fp11y + gp11z + h
+        minimize all corner u, v for which direction=0
+        maximize all corner u, v for which direction=1
 
     constraints:
-        relate ah and p
-        every colour projected must be between 0 and 1
+        relate proj and uvw
+        
+    bounds:
+        0 <= uv <= 1
     '''
 
-    # rgb1 0000 -1 000 0000 = 0
-    # rgb1 0000  0-100 0000 = 0
-    # ...
-    affine = np.hstack((corner_rgb, np.ones((len(corner_idx), 1))))
+    cost = np.zeros(2*4 + 2*n)
+    cost[2*4 + corner_idx] = directions[0]
+    cost[2*4 + corner_idx + n] = directions[1]
+
+    lb = np.concatenate((
+        np.full(shape=2*4, fill_value=-np.inf),  # projection
+        np.zeros(shape=2*n),  # projected uv
+    ))
+    ub = np.concatenate((
+        np.full(shape=2*4, fill_value=+np.inf),  # projection
+        np.ones(shape=2*n),  # projected uv
+    ))
+
+    # The projection must exactly produce the projected points
+    # rgb1 0000 -1000  0000 = 0 ...
+    # 0000 rgb1  0000 -1000 = 0 ...
+    affine = np.hstack((colours, np.ones((n, 1))))
     a = scipy.sparse.hstack((
         scipy.sparse.block_diag((affine, affine), format='bsr'),
-        -scipy.sparse.eye_array(m=2*len(corner_idx), format='dia'),
+        -scipy.sparse.eye_array(m=2*n, format='dia'),
     ), format='csc')
-    corner_constraint = LinearConstraint(A=a, lb=0, ub=0)
-
-    # 0 <= rgb1 0000 00000000 <= 1
-    # ...
-    # 0 <= 0000 rgb1 00000000 <= 1
-    affine = np.hstack((off_corner_rgb, np.ones((len(off_corner_rgb), 1))))
-    a = scipy.sparse.block_diag((affine, affine), format='csc')
-    a.resize((a.shape[0], 2*(4 + len(corner_idx))))
-    off_corner_constraint = LinearConstraint(A=a, lb=0, ub=1)
+    projection_constraint = LinearConstraint(A=a, lb=0, ub=0)
 
     result = milp(
-        # a-h     px, py
-        c=[0]*8 + directions,
+        c=cost,
         integrality=0,
-        bounds=Bounds(
-            #   a-h           pxy
-            lb=(-np.inf,)*8 + (0,)*(2*len(corner_idx)),
-            ub=(+np.inf,)*8 + (1,)*(2*len(corner_idx)),
-        ),
-        constraints=(corner_constraint, off_corner_constraint),
+        bounds=Bounds(lb=lb, ub=ub),
+        constraints=projection_constraint,
     )
     if not result.success:
         raise ValueError(result.message)
-    projection, corners = np.split(result.x, (8,))
-    return projection.reshape((2, -1)).T
+    projection, projected = np.split(result.x, (2*4,))
+    projection = projection.reshape((2, 4)).T
+    projected = projected.reshape((2, -1)).T
+    print('Projection:')
+    print(projection)
+    print('Projected corners:')
+    print(projected[corner_idx])
+    return projection
 
 
 def project_grid(normal: np.ndarray, rhs: float) -> np.ndarray:
