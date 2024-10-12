@@ -3,6 +3,8 @@ import typing
 import numpy as np
 import scipy.sparse
 from matplotlib import pyplot as plt
+from matplotlib.collections import TriMesh
+from matplotlib.tri import Triangulation
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.optimize import milp, Bounds, LinearConstraint
 
@@ -63,7 +65,7 @@ def fit_matrix_from_map(
 def fit_matrix_linprog(
     colour_dict: dict[str, bytes], colours: np.ndarray,
     p00: str, p01: str, p10: str, p11: str,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     n = len(colour_dict)
     places = np.array((
         (0,0), (0,1), (1,0), (1,1),
@@ -133,7 +135,7 @@ def fit_matrix_linprog(
     print(projection)
     print('Projected corners:')
     print(projected[corner_idx])
-    return projection
+    return projection, projected
 
 
 def project_grid(normal: np.ndarray, rhs: float) -> np.ndarray:
@@ -266,6 +268,24 @@ def plot_reduction_planar(
     return ax
 
 
+def plot_delaunay_gouraud(
+    colours: np.ndarray,
+    colour_dict: dict[str, bytes],
+    colour_strs: typing.Sequence[str],
+    projected: np.ndarray,
+) -> plt.Axes:
+    fig, ax = plt.subplots()
+    delaunay = Triangulation(*projected.T)
+    mesh = TriMesh(triangulation=delaunay, color=colour_strs)
+    ax.add_collection(mesh)
+
+    for name, pos, colour in zip(colour_dict.keys(), projected, colours):
+        c = 'lightgrey' if np.linalg.norm(colour) < 160 else 'black'
+        ax.text(*pos, name, c=c, rotation=30)
+
+    return ax
+
+
 def demo() -> None:
     # from https://en.wikipedia.org/w/index.php?title=Template:Mycomorphbox&action=edit
     colour_dict = {
@@ -294,17 +314,16 @@ def demo() -> None:
 
     colours = dict_to_array(colour_dict)
     colour_strs = triples_to_hex(triples=colour_dict.values())
-    projection = fit_matrix_linprog(
+    projection, projected = fit_matrix_linprog(
         colour_dict=colour_dict, colours=colours,
         p00='black',
         p01='purple',
         p10='yellow-orange',
         p11='white',
     )
-    projected = project_reduction(colours=colours, projection=projection)
-    plot_reduction_planar(
-        colour_dict=colour_dict, colour_strs=colour_strs,
-        projection=projection, projected=projected,
+    plot_delaunay_gouraud(
+        colours=colours, colour_dict=colour_dict, colour_strs=colour_strs,
+        projected=projected,
     )
 
     plt.show()
