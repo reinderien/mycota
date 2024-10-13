@@ -12,14 +12,16 @@ from scipy.optimize import milp, Bounds, LinearConstraint
 def dict_to_array(colours: dict[str, bytes]) -> np.ndarray:
     """
     Given a dictionary name of friendly names to three-element byte strings,
-    return an n*3 ndarray. Because this is intended for processing, the dtype is
-    float64 and not uint8."""
-    return np.array([tuple(triple) for triple in colours.values()])
+    return an n*3 ndarray."""
+    return np.array(
+        [tuple(triple) for triple in colours.values()],
+        dtype=np.uint8,
+    )
 
 
 def triples_to_hex(triples: typing.Iterable[tuple[int, int, int]]) -> tuple[str, ...]:
     """
-    Given a triple iterable (typically an ndarray of dtype uint), render a tuple
+    Given a triple iterable (typically an n*3 ndarray of uint8), render a tuple
     of HTML-like colour strings for matplotlib.
     """
     return tuple(
@@ -36,7 +38,7 @@ def fit_plane(
     not chased down, this works poorly unless only a subset of points are used for
     the fit.
     """
-    offset = -128  # offset to add to the input; otherwise input (0,0,0) is a problem
+    offset = -128.  # offset to add to the input; otherwise input (0,0,0) is a problem
     rhs = 127
     sel = [0, 6, 12, 18, -1]  # selected indices of points for fit
     normal, residuals, rank, singular = np.linalg.lstsq(
@@ -54,7 +56,7 @@ def fit_plane(
     normal /= mag   # normalise
     rhs /= mag
 
-    print(f'Colour plane of best fit: (r g b)@{normal} ~ {rhs}')
+    print(f'Colour plane of best fit on {len(sel)} colours: (r g b)@{normal} ~ {rhs:.4f}')
     return normal, rhs
 
 
@@ -134,6 +136,7 @@ def fit_project_linprog(
     )
     if not result.success:
         raise ValueError(result.message)
+
     projection, projected = np.split(result.x, (2*4,))
     projection = projection.reshape((2, 4)).T
     projected = projected.reshape((2, -1)).T
@@ -146,40 +149,41 @@ def fit_project_linprog(
 
 def project_grid(normal: np.ndarray, rhs: float) -> np.ndarray:
     """Given a planar normal and equation right-hand side, generate a grid in
-    the original (rgb) coordinate space on the plane."""
-    channel = np.linspace(start=0, stop=255, num=40)
+    the original (rgb) coordinate space on the plane. Because two channels are grid-generated
+    and one channel is calculated from the other two, the dtype is float64."""
+    channel = np.arange(0, 256, 5, dtype=np.uint8)  # max 255
     ggbb = np.stack(np.meshgrid(channel, channel), axis=-1)
     # For an established green-blue grid, solve for red from the plane equation
     rr = rhs/normal[0] - ggbb@(normal[1:]/normal[0])
-    return np.concatenate(
+    projected = np.concatenate(
         (rr[..., np.newaxis], ggbb), axis=2,
     ).clip(min=0, max=255)
+    return projected
 
 
 def project_irregular(colours: np.ndarray, normal: np.ndarray, rhs: float) -> np.ndarray:
+    """Given an n*3 colour matrix, a 3-normal and a planar right-hand side scalar,
+    return the colours projected onto the plane, still in rgb space."""
     offset = rhs/normal[0], 0, 0
     v = colours - offset
     w = normal
     return offset + v - np.outer(v@w, w/w.dot(w))
 
 
-def project_reduction(colours: np.ndarray, projection: np.ndarray) -> np.ndarray:
-    return np.hstack((
-        colours, np.ones((len(colours), 1)),
-    )) @ projection
-
-
 def plot_2d(
-    colours: np.ndarray, projected: np.ndarray,
-    rgb_grid: np.ndarray,
-    colour_strs: tuple[str, ...], proj_strs: tuple[str, ...],
+    colours: np.ndarray,    # n*3 array of uint8
+    projected: np.ndarray,  # n*3 array of float64, projection to plane of best fit
+    rgb_grid: np.ndarray,   # m*m*3 array of float64, projected grid to plane of best fit
+    colour_strs: typing.Sequence[str],  # HTML-like codes for original colours
+    proj_strs: typing.Sequence[str],    # HTML-like codes for projected colours
 ) -> plt.Axes:
+    """Plot two locii: the original rgb `colours` and the `projected` colours
+    on the plane of best fit. The 2D plot projection is not the projection of
+    best fit, but the green-blue plane.
+    """
     ax: plt.Axes
     fig, ax = plt.subplots()
-    rgb = np.full_like(rgb_grid, fill_value=100)  # dark grey
-    mask = ((rgb_grid >= 0) & (rgb_grid <= 255)).all(axis=-1)
-    rgb[mask] = rgb_grid[mask]
-    rgb = rgb.astype(np.uint8)
+    rgb = rgb_grid.astype(np.uint8)
     ax.imshow(rgb, extent=(0, 255, 0, 255), origin='lower')
     ax.scatter(colours[:, 1], colours[:, 2], c=colour_strs)
     ax.scatter(
