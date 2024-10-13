@@ -10,10 +10,18 @@ from scipy.optimize import milp, Bounds, LinearConstraint
 
 
 def dict_to_array(colours: dict[str, bytes]) -> np.ndarray:
+    """
+    Given a dictionary name of friendly names to three-element byte strings,
+    return an n*3 ndarray. Because this is intended for processing, the dtype is
+    float64 and not uint8."""
     return np.array([tuple(triple) for triple in colours.values()])
 
 
 def triples_to_hex(triples: typing.Iterable[tuple[int, int, int]]) -> tuple[str, ...]:
+    """
+    Given a triple iterable (typically an ndarray of dtype uint), render a tuple
+    of HTML-like colour strings for matplotlib.
+    """
     return tuple(
         f'#{red:02x}{green:02x}{blue:02x}'
         for red, green, blue in triples
@@ -23,75 +31,75 @@ def triples_to_hex(triples: typing.Iterable[tuple[int, int, int]]) -> tuple[str,
 def fit_plane(
     colours: np.ndarray,
 ) -> tuple[np.ndarray, float]:
-    offset = -128
-    rhs = 255
-    # Plane of best fit to form ax + by + cz + 256 = 255
-    sel = [0, 6, 12, 18, -1]
+    """
+    Linear (planar) fit to form (rgb + offset)@abc = rhs. For reasons that I have
+    not chased down, this works poorly unless only a subset of points are used for
+    the fit.
+    """
+    offset = -128  # offset to add to the input; otherwise input (0,0,0) is a problem
+    rhs = 127
+    sel = [0, 6, 12, 18, -1]  # selected indices of points for fit
     normal, residuals, rank, singular = np.linalg.lstsq(
-        a=colours[sel] + offset,
-        b=np.full(shape=len(sel), fill_value=rhs),
+        a=colours[sel] + offset, b=np.full(shape=len(sel), fill_value=rhs),
         rcond=None,
     )
     if rank != 3:
         raise ValueError(f'Deficient rank {rank}')
 
-    # (rgb + offset)@norm = 255
+    # Account for offset: (rgb + offset)@norm = rhs
     # rgb@norm = 255 - offset*norm.sum()
     rhs -= offset*normal.sum()
-    print(f'Colour plane of best fit: (r g b) .', normal, '~', rhs)
+
+    mag = np.linalg.norm(normal)
+    normal /= mag   # normalise
+    rhs /= mag
+
+    print(f'Colour plane of best fit: (r g b)@{normal} ~ {rhs}')
     return normal, rhs
 
 
-def fit_matrix_from_map(
-    colour_dict: dict[str, bytes], colours: np.ndarray,
-    mapping: dict[str, tuple[float, float]],
-) -> np.ndarray:
-    name_to_index = dict(zip(colour_dict.keys(), range(len(colour_dict))))
-    a = np.hstack((  # 4*4
-        np.array([
-            colours[name_to_index[k]]
-            for k in mapping.keys()
-        ]),
-        np.ones((len(mapping), 1)),
-    ))
-    # x is 4*2
-    b = np.array(tuple(mapping.values()))
-    projection, residual, rank, singular = np.linalg.lstsq(a, b, rcond=None)
-    if rank != 4:
-        raise ValueError(f'Deficient rank {rank}')
-    return projection
-
-
-def fit_matrix_linprog(
+def fit_project_linprog(
     colour_dict: dict[str, bytes], colours: np.ndarray,
     p00: str, p01: str, p10: str, p11: str,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Given the name-colourbytes dictionary, the n*3 colour matrix, and four corner
+    colour names, create a projection using a linear program. The projection has
+    the following characteristics:
+
+    - It's a 4*2 affine homogeneous matrix (though typically the last row evaluates to 0)
+    - It projects rgb space to uv space
+    - All projected uv coordinates lie in [0, 1]
+    - The four named corner colours are pulled as far as possible to the corners of the uv
+      coordinate space.
+
+    The projection matrix (4*2) and the projected colour point matrix (n*2) are returned.
+    """
+
     n = len(colour_dict)
-    places = np.array((
-        (0,0), (0,1), (1,0), (1,1),
-    ))
+    corner_targets = np.array(((0,0), (0,1), (1,0), (1,1),))
     corner_names = (p00, p01, p10, p11)
-    directions = 1 - 2*places.T
+    directions = 1 - 2*corner_targets.T  # cost coefficients, 1 or -1
     name_to_index = dict(zip(colour_dict.keys(), range(len(colour_dict))))
     corner_idx = np.array([name_to_index[k] for k in corner_names])
 
     '''
-    variables:
-    a e
+    Linear program variables:
+    a e    # projection
     b f
     c g
     d h,
-    u for all points,
-    v for all points    
+    u,     # projected coordinates
+    v;    
     flattened as:
-    abcd efgh uuuu vvvv
+    abcd efgh uuuuuu... vvvvvv...
 
     objective:
-        minimize all corner u, v for which direction=0
-        maximize all corner u, v for which direction=1
+        minimize all corner u, v for which target=0
+        maximize all corner u, v for which target=1
 
     constraints:
-        relate proj and uvw
+        rgb@proj == uv
         
     bounds:
         0 <= uv <= 1
@@ -103,11 +111,11 @@ def fit_matrix_linprog(
 
     lb = np.concatenate((
         np.full(shape=2*4, fill_value=-np.inf),  # projection
-        np.zeros(shape=2*n),  # projected uv
+        np.zeros(shape=2*n),                     # projected uv
     ))
     ub = np.concatenate((
         np.full(shape=2*4, fill_value=+np.inf),  # projection
-        np.ones(shape=2*n),  # projected uv
+        np.ones(shape=2*n),                      # projected uv
     ))
 
     # The projection must exactly produce the projected points
@@ -121,9 +129,7 @@ def fit_matrix_linprog(
     projection_constraint = LinearConstraint(A=a, lb=0, ub=0)
 
     result = milp(
-        c=cost,
-        integrality=0,
-        bounds=Bounds(lb=lb, ub=ub),
+        c=cost, integrality=0, bounds=Bounds(lb=lb, ub=ub),
         constraints=projection_constraint,
     )
     if not result.success:
@@ -139,14 +145,15 @@ def fit_matrix_linprog(
 
 
 def project_grid(normal: np.ndarray, rhs: float) -> np.ndarray:
+    """Given a planar normal and equation right-hand side, generate a grid in
+    the original (rgb) coordinate space on the plane."""
     channel = np.linspace(start=0, stop=255, num=40)
-    ggbb = np.stack(
-        np.meshgrid(channel, channel), axis=-1,
-    )
+    ggbb = np.stack(np.meshgrid(channel, channel), axis=-1)
+    # For an established green-blue grid, solve for red from the plane equation
     rr = rhs/normal[0] - ggbb@(normal[1:]/normal[0])
-    rgb = np.concatenate((rr[..., np.newaxis], ggbb), axis=2)
-    rgb[(rgb > 255).any(axis=-1)] = np.nan
-    return rgb
+    return np.concatenate(
+        (rr[..., np.newaxis], ggbb), axis=2,
+    ).clip(min=0, max=255)
 
 
 def project_irregular(colours: np.ndarray, normal: np.ndarray, rhs: float) -> np.ndarray:
@@ -308,12 +315,10 @@ def demo_reduction(
     colours: np.ndarray,
     colour_strs: typing.Sequence[str],
 ) -> None:
-    projection, projected = fit_matrix_linprog(
+    # Also possible: black, purple, yellow-orange, white
+    projection, projected = fit_project_linprog(
         colour_dict=colour_dict, colours=colours,
-        p00='black',
-        p01='purple',
-        p10='yellow-orange',
-        p11='white',
+        p00='black', p01='green', p10='ochre', p11='white',
     )
     plot_delaunay_gouraud(
         colours=colours, colour_dict=colour_dict, colour_strs=colour_strs,
@@ -321,7 +326,7 @@ def demo_reduction(
     )
 
 
-def demo() -> None:
+def demo(lp_reduction: bool = True) -> None:
     # from https://en.wikipedia.org/w/index.php?title=Template:Mycomorphbox&action=edit
     colour_dict = {
         'black': b'\x00\x00\x00',
@@ -350,10 +355,12 @@ def demo() -> None:
     colours = dict_to_array(colour_dict)
     colour_strs = triples_to_hex(triples=colour_dict.values())
 
-    # demo_planar(colour_dict=colour_dict, colours=colours, colour_strs=colour_strs)
-    demo_reduction(colour_dict=colour_dict, colours=colours, colour_strs=colour_strs)
+    if lp_reduction:
+        demo_reduction(colour_dict=colour_dict, colours=colours, colour_strs=colour_strs)
+    else:
+        demo_planar(colour_dict=colour_dict, colours=colours, colour_strs=colour_strs)
 
     plt.show()
 
 
-demo()
+demo(False)
