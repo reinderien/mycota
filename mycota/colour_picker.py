@@ -1,12 +1,12 @@
 import typing
 
 import numpy as np
+import scipy.optimize
 import scipy.sparse
 from matplotlib import pyplot as plt
 from matplotlib.collections import TriMesh
 from matplotlib.tri import Triangulation
 from mpl_toolkits.mplot3d import Axes3D
-from scipy.optimize import milp, Bounds, LinearConstraint
 
 
 def dict_to_array(colours: dict[str, bytes]) -> np.ndarray:
@@ -134,10 +134,10 @@ def fit_project_linprog(
         scipy.sparse.block_diag((affine, affine), format='bsr'),
         -scipy.sparse.eye_array(m=2*n, format='dia'),
     ), format='csc')
-    projection_constraint = LinearConstraint(A=a, lb=0, ub=0)
+    projection_constraint = scipy.optimize.LinearConstraint(A=a, lb=0, ub=0)
 
-    result = milp(
-        c=cost, integrality=0, bounds=Bounds(lb=lb, ub=ub),
+    result = scipy.optimize.milp(
+        c=cost, integrality=0, bounds=scipy.optimize.Bounds(lb=lb, ub=ub),
         constraints=projection_constraint,
     )
     if not result.success:
@@ -264,8 +264,20 @@ def plot_correspondences(
         )
 
 
+def plot_labels(
+    ax: plt.Axes,           # to plot on
+    colours: np.ndarray,    # n*3 array of uint8
+    projected: np.ndarray,  # n*2 uv projected colours
+    names: typing.Collection[str],  # friendly colour names
+)-> None:
+    for name, pos, colour in zip(names, projected, colours):
+        c = 'lightgrey' if np.linalg.norm(colour) < 160 else 'black'
+        ax.text(*pos, name, c=c, rotation=30)
+
+
 def plot_reduction_planar(
-    colour_names: typing.Iterable[str],  # friendly colour names
+    colours: np.ndarray,  # n*3 array of uint8
+    colour_names: typing.Collection[str],  # friendly colour names
     colour_strs: typing.Sequence[str],   # HTML-like codes for original colours
     antiprojection: np.ndarray,          # 3x3 uv->rgb
     projected: np.ndarray,  # n*2 uv projected colours
@@ -290,25 +302,29 @@ def plot_reduction_planar(
         projected[:, 1],
         c=colour_strs,
     )
-    for name, pos in zip(colour_names, projected):
-        ax.text(*pos, name)
+    fig.suptitle('Planar reduction')
+    ax.set_xlabel('u')
+    ax.set_ylabel('v')
+    plot_labels(ax=ax, colours=colours, projected=projected, names=colour_names)
     return ax
 
 
 def plot_delaunay_gouraud(
-    colours: np.ndarray,
-    colour_dict: dict[str, bytes],
-    colour_strs: typing.Sequence[str],
-    projected: np.ndarray,
+    colours: np.ndarray,  # n*3 array of uint8
+    colour_names: typing.Collection[str],  # friendly colour names
+    colour_strs: typing.Sequence[str],   # HTML-like codes for original colours
+    projected: np.ndarray,  # n*2 uv projected colours
 ) -> plt.Axes:
     fig, ax = plt.subplots()
     delaunay = Triangulation(*projected.T)
     mesh = TriMesh(triangulation=delaunay, color=colour_strs)
     ax.add_collection(mesh)
 
-    for name, pos, colour in zip(colour_dict.keys(), projected, colours):
-        c = 'lightgrey' if np.linalg.norm(colour) < 160 else 'black'
-        ax.text(*pos, name, c=c, rotation=30)
+    plot_labels(ax=ax, colours=colours, projected=projected, names=colour_names)
+
+    fig.suptitle('Delaunay-Gouraud interpolation')
+    ax.set_xlabel('u')
+    ax.set_ylabel('v')
 
     return ax
 
@@ -348,11 +364,11 @@ def demo_reduction(
         colours=colours, projected=projected, corner_idx=corner_idx,
     )
     plot_reduction_planar(
-        colour_names=colour_dict.keys(), colour_strs=colour_strs,
-        antiprojection=antiprojection, projected=projected,
+        colours=colours, colour_names=colour_dict.keys(), colour_strs=colour_strs,
+        projected=projected, antiprojection=antiprojection,
     )
     plot_delaunay_gouraud(
-        colours=colours, colour_dict=colour_dict, colour_strs=colour_strs,
+        colours=colours, colour_names=colour_dict.keys(), colour_strs=colour_strs,
         projected=projected,
     )
 
