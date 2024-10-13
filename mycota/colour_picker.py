@@ -19,7 +19,7 @@ def dict_to_array(colours: dict[str, bytes]) -> np.ndarray:
     )
 
 
-def triples_to_hex(triples: typing.Iterable[tuple[int, int, int]]) -> tuple[str, ...]:
+def triples_to_hex(triples: typing.Collection[tuple[int, int, int]]) -> tuple[str, ...]:
     """
     Given a triple iterable (typically an n*3 ndarray of uint8), render a tuple
     of HTML-like colour strings for matplotlib.
@@ -30,9 +30,7 @@ def triples_to_hex(triples: typing.Iterable[tuple[int, int, int]]) -> tuple[str,
     )
 
 
-def fit_plane(
-    colours: np.ndarray,
-) -> tuple[np.ndarray, float]:
+def fit_plane(colours: np.ndarray) -> tuple[np.ndarray, float]:
     """
     Linear (planar) fit to form (rgb + offset)@abc = rhs. For reasons that I have
     not chased down, this works poorly unless only a subset of points are used for
@@ -60,9 +58,20 @@ def fit_plane(
     return normal, rhs
 
 
+def get_corner_idx(
+    colour_names: typing.Collection[str],    # all friendly names
+    p00: str, p01: str, p10: str, p11: str,  # friendly names for each corner
+):
+    """Given a collection of colour friendly names and four corner names,
+     return array of corresponding indices."""
+    corner_names = (p00, p01, p10, p11)
+    name_to_index = dict(zip(colour_names, range(len(colour_names))))
+    return np.array([name_to_index[k] for k in corner_names])
+
+
 def fit_project_linprog(
-    colour_dict: dict[str, bytes], colours: np.ndarray,
-    p00: str, p01: str, p10: str, p11: str,
+    colours: np.ndarray,     # n*3 rgb colours
+    corner_idx: np.ndarray,  # indices of the colour corners
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Given the name-colourbytes dictionary, the n*3 colour matrix, and four corner
@@ -78,12 +87,9 @@ def fit_project_linprog(
     The projection matrix (4*2) and the projected colour point matrix (n*2) are returned.
     """
 
-    n = len(colour_dict)
-    corner_targets = np.array(((0,0), (0,1), (1,0), (1,1),))
-    corner_names = (p00, p01, p10, p11)
+    n = len(colours)
+    corner_targets = np.array(((0,0), (0,1), (1,0), (1,1)))
     directions = 1 - 2*corner_targets.T  # cost coefficients, 1 or -1
-    name_to_index = dict(zip(colour_dict.keys(), range(len(colour_dict))))
-    corner_idx = np.array([name_to_index[k] for k in corner_names])
 
     '''
     Linear program variables:
@@ -170,47 +176,21 @@ def project_irregular(colours: np.ndarray, normal: np.ndarray, rhs: float) -> np
     return offset + v - np.outer(v@w, w/w.dot(w))
 
 
-def antiprojection(
-    projection: np.ndarray,  # 4*2 rgb->uv homogeneous
+def get_antiprojection(
+    colours: np.ndarray,     # original rgb, n*3
+    projected: np.ndarray,   # projected uv points, n*2
+    corner_idx: np.ndarray,  # indices of corners in colour array
 ) -> np.ndarray:
-    """
-    Generate a grid over uv space, and then perform an antiprojection to rgb space.
-    """
-
-    '''
-    If 
-    [rgb1] [ae] = [uv]
-    [rgb1] [bf]   [uv]
-    [rgb1] [cg]   [uv]
-    [rgb1] [dh]   [uv]
-    [rgb1]        [uv]
-    [rgb1]        [uv]
-    and abcdefgh and uv are known, but this has too many degrees of freedom:
-    [abcd][rrrrrrr] = [uuuuuuu]
-    [efgh][ggggggg]   [vvvvvvv]
-          [bbbbbbb]
-          [1111111]
-    If we fix r and g, this becomes
-    [bc][ggggggg] = [u - a*r - d...]
-    [fg][bbbbbbb]   [v - e*r - h...]
-    '''
-    uv_series = np.linspace(start=0, stop=1, num=11)
-    uv = np.stack(np.meshgrid(uv_series, uv_series), axis=0)
-    fixed_r = (255*0.5)*uv.sum(axis=0, keepdims=True)
-    deprojected, residuals, rank, singular = np.linalg.lstsq(
-        a=projection[1:3].T,
-        b=(
-              uv
-              - projection.T[:, [0], np.newaxis]*fixed_r  # ae*r
-              - projection.T[:, [3], np.newaxis]          # dh
-          ).reshape((2, -1)) - 128*projection[[0]].T,
-        rcond=None,
+    """Calculate an antiprojection matrix from original and projected points."""
+    anti, residual, rank, singular = np.linalg.lstsq(
+        a=np.hstack((
+            projected[corner_idx], np.ones((len(corner_idx), 1)),
+        )),
+        b=colours[corner_idx],
     )
-    if rank != 2:
-        raise ValueError(f'Deficient rank {rank}')
-    deprojected = deprojected.reshape((-1,) + uv.shape[1:])
-    deprojected = np.concatenate((fixed_r, deprojected), axis=0)
-    return deprojected
+    print('Antiprojection:')
+    print(anti)
+    return anti
 
 
 def plot_2d(
@@ -247,7 +227,7 @@ def plot_2d(
 def plot_3d(
     colours: np.ndarray,    # n*3 array of uint8
     projected: np.ndarray,  # n*3 array of float64, projection to plane of best fit
-    colour_names: typing.Iterable[str],  # friendly colour names
+    colour_names: typing.Collection[str],  # friendly colour names
     colour_strs: typing.Sequence[str],  # HTML-like codes for original colours
     proj_strs: typing.Sequence[str],    # HTML-like codes for projected colours
 ) -> Axes3D:
@@ -286,17 +266,21 @@ def plot_correspondences(
 
 def plot_reduction_planar(
     colour_names: typing.Iterable[str],  # friendly colour names
-    colour_strs: typing.Sequence[str],  # HTML-like codes for original colours
-    projection: np.ndarray,  # 4*2 rgb->uv homogeneous
-    projected: np.ndarray,   # n*2 uv projected colours
+    colour_strs: typing.Sequence[str],   # HTML-like codes for original colours
+    antiprojection: np.ndarray,          # 3x3 uv->rgb
+    projected: np.ndarray,  # n*2 uv projected colours
 ) -> plt.Axes:
-    """Plot points projected into u,v space. Currently the individual points make sense
-    but the inferred colour plane doesn't."""
+    """Plot points projected into u,v space."""
     fig, ax = plt.subplots()
 
+    uv_series = np.linspace(start=0, stop=1, num=21)
+    uv_homogeneous = np.stack(
+        np.meshgrid(uv_series, uv_series) +
+        (np.ones((uv_series.size, uv_series.size)),),
+        axis=2,
+    )
     rgb = (
-        antiprojection(projection)
-        .transpose(1, 2, 0)
+        (uv_homogeneous @ antiprojection)
         .clip(min=0, max=255).round()
         .astype(np.uint8)
     )
@@ -352,13 +336,20 @@ def demo_reduction(
     colour_strs: typing.Sequence[str],
 ) -> None:
     # Also possible: black, purple, yellow-orange, white
-    projection, projected = fit_project_linprog(
-        colour_dict=colour_dict, colours=colours,
+    corner_idx = get_corner_idx(
+        colour_names=colour_dict.keys(),
         p00='black', p01='green', p10='ochre', p11='white',
     )
+
+    projection, projected = fit_project_linprog(
+        colours=colours, corner_idx=corner_idx,
+    )
+    antiprojection = get_antiprojection(
+        colours=colours, projected=projected, corner_idx=corner_idx,
+    )
     plot_reduction_planar(
-        colour_names=colour_dict.keys(), colour_strs=colour_strs, projection=projection,
-        projected=projected,
+        colour_names=colour_dict.keys(), colour_strs=colour_strs,
+        antiprojection=antiprojection, projected=projected,
     )
     plot_delaunay_gouraud(
         colours=colours, colour_dict=colour_dict, colour_strs=colour_strs,
