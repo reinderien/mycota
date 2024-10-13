@@ -70,9 +70,9 @@ def get_corner_idx(
 
 
 def fit_project_linprog(
-    colours: np.ndarray,     # n*3 rgb colours
-    corner_targets: np.ndarray,
-    corner_idx: np.ndarray,  # indices of the colour corners
+    colours: np.ndarray,         # n*3 rgb colours
+    corner_targets: np.ndarray,  # u,v coordinates of coordinate system target corners
+    corner_idx: np.ndarray,      # indices of the colour corners
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Given the name-colourbytes dictionary, the n*3 colour matrix, and four corner
@@ -278,9 +278,9 @@ def plot_labels(
 def plot_reduction_planar(
     colours: np.ndarray,  # n*3 array of uint8
     colour_names: typing.Collection[str],  # friendly colour names
-    colour_strs: typing.Sequence[str],   # HTML-like codes for original colours
-    antiprojection: np.ndarray,          # 3x3 uv1->rgb
-    projected: np.ndarray,  # n*2 uv projected colours
+    colour_strs: typing.Sequence[str],     # HTML-like codes for original colours
+    antiprojection: np.ndarray,  # 3x3 uv1->rgb
+    projected: np.ndarray,       # n*2 uv projected colours
 ) -> plt.Axes:
     """Plot points projected into u,v space."""
     fig, ax = plt.subplots()
@@ -312,11 +312,13 @@ def plot_reduction_planar(
 def plot_delaunay_gouraud(
     colours: np.ndarray,  # n*3 array of uint8
     colour_names: typing.Collection[str],  # friendly colour names
-    colour_strs: typing.Sequence[str],   # HTML-like codes for original colours
-    corner_targets: np.ndarray,
-    antiprojection: np.ndarray,    # 3x3 uv1->rgb
-    projected: np.ndarray,  # n*2 uv projected colours
+    colour_strs: typing.Sequence[str],     # HTML-like codes for original colours
+    corner_targets: np.ndarray,  # uv coordinates of the coordinate space corners
+    antiprojection: np.ndarray,  # 3x3 uv1->rgb
+    projected: np.ndarray,       # n*2 uv projected colours
 ) -> plt.Axes:
+    """Plot projected points in uv space using Delaunay triangulation and Gouraud shading. The uv
+    'target' corners (to which, sometimes, no named colour has been mapped) are extrapolated."""
     fig, ax = plt.subplots()
     missing_corners = corner_targets[~(
         projected[np.newaxis, ::] == corner_targets[:, np.newaxis, :]
@@ -342,10 +344,13 @@ def plot_delaunay_gouraud(
 
 
 def demo_planar(
-    colour_dict: dict[str, bytes],
-    colours: np.ndarray,
-    colour_strs: typing.Sequence[str],
+    colours: np.ndarray,  # n*3 array of uint8
+    colour_names: typing.Collection[str],  # friendly colour names
+    colour_strs: typing.Sequence[str],     # HTML-like codes for colours
 ) -> None:
+    """Calculate and plot a simple linear regression. Doesn't work very well, but it's useful to
+    look at the RGB points in 3D."""
+
     normal, rhs = fit_plane(colours=colours)
     rgb_float = project_grid(normal=normal, rhs=rhs)
     projected = project_irregular(colours=colours, normal=normal, rhs=rhs)
@@ -353,19 +358,22 @@ def demo_planar(
 
     ax2 = plot_2d(colours=colours, projected=projected, rgb_grid=rgb_float,
                   colour_strs=colour_strs, proj_strs=proj_strs)
-    ax3 = plot_3d(colours=colours, projected=projected, colour_names=colour_dict.keys(),
+    ax3 = plot_3d(colours=colours, projected=projected, colour_names=colour_names,
                   colour_strs=colour_strs, proj_strs=proj_strs)
     plot_correspondences(ax2=ax2, ax3=ax3, colours=colours, projected=projected)
 
 
 def demo_reduction(
-    colour_dict: dict[str, bytes],
-    colours: np.ndarray,
-    colour_strs: typing.Sequence[str],
+    colours: np.ndarray,  # n*3 array of uint8
+    colour_names: typing.Collection[str],  # friendly colour names
+    colour_strs: typing.Sequence[str],     # HTML-like codes for colours
 ) -> None:
+    """Calculate a reducing projection from rgb->uv using linear programming, and plot. This is what
+    we'll probably use as the basis for a colour picker in a UI."""
+
     # Also possible: black, purple, yellow-orange, white
     corner_idx = get_corner_idx(
-        colour_names=colour_dict.keys(),
+        colour_names=colour_names,
         p00='black', p01='green', p10='ochre', p11='white',
     )
     corner_targets = np.array(((0, 0), (0, 1), (1, 0), (1, 1)))
@@ -377,11 +385,11 @@ def demo_reduction(
         colours=colours, corner_idx=corner_idx, projected=projected,
     )
     plot_reduction_planar(
-        colours=colours, colour_names=colour_dict.keys(), colour_strs=colour_strs,
+        colours=colours, colour_names=colour_names, colour_strs=colour_strs,
         projected=projected, antiprojection=antiprojection,
     )
     plot_delaunay_gouraud(
-        colours=colours, colour_names=colour_dict.keys(), colour_strs=colour_strs,
+        colours=colours, colour_names=colour_names, colour_strs=colour_strs,
         projected=projected, antiprojection=antiprojection, corner_targets=corner_targets,
     )
 
@@ -411,14 +419,14 @@ def demo(lp_reduction: bool = True) -> None:
         'purple-brown': b'\x4b\x35\x45',
         'yellow-brown': b'\xcb\x97\x35',
     }
-
+    colour_names = colour_dict.keys()
     colours = dict_to_array(colour_dict)
     colour_strs = triples_to_hex(triples=colour_dict.values())
 
     if lp_reduction:
-        demo_reduction(colour_dict=colour_dict, colours=colours, colour_strs=colour_strs)
+        demo_reduction(colour_names=colour_names, colours=colours, colour_strs=colour_strs)
     else:
-        demo_planar(colour_dict=colour_dict, colours=colours, colour_strs=colour_strs)
+        demo_planar(colour_names=colour_names, colours=colours, colour_strs=colour_strs)
 
     plt.show()
 
