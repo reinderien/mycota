@@ -170,6 +170,49 @@ def project_irregular(colours: np.ndarray, normal: np.ndarray, rhs: float) -> np
     return offset + v - np.outer(v@w, w/w.dot(w))
 
 
+def antiprojection(
+    projection: np.ndarray,  # 4*2 rgb->uv homogeneous
+) -> np.ndarray:
+    """
+    Generate a grid over uv space, and then perform an antiprojection to rgb space.
+    """
+
+    '''
+    If 
+    [rgb1] [ae] = [uv]
+    [rgb1] [bf]   [uv]
+    [rgb1] [cg]   [uv]
+    [rgb1] [dh]   [uv]
+    [rgb1]        [uv]
+    [rgb1]        [uv]
+    and abcdefgh and uv are known, but this has too many degrees of freedom:
+    [abcd][rrrrrrr] = [uuuuuuu]
+    [efgh][ggggggg]   [vvvvvvv]
+          [bbbbbbb]
+          [1111111]
+    If we fix r and g, this becomes
+    [bc][ggggggg] = [u - a*r - d...]
+    [fg][bbbbbbb]   [v - e*r - h...]
+    '''
+    uv_series = np.linspace(start=0, stop=1, num=11)
+    uv = np.stack(np.meshgrid(uv_series, uv_series), axis=0)
+    fixed_r = (255*0.5)*uv.sum(axis=0, keepdims=True)
+    deprojected, residuals, rank, singular = np.linalg.lstsq(
+        a=projection[1:3].T,
+        b=(
+              uv
+              - projection.T[:, [0], np.newaxis]*fixed_r  # ae*r
+              - projection.T[:, [3], np.newaxis]          # dh
+          ).reshape((2, -1)) - 128*projection[[0]].T,
+        rcond=None,
+    )
+    if rank != 2:
+        raise ValueError(f'Deficient rank {rank}')
+    deprojected = deprojected.reshape((-1,) + uv.shape[1:])
+    deprojected = np.concatenate((fixed_r, deprojected), axis=0)
+    return deprojected
+
+
 def plot_2d(
     colours: np.ndarray,    # n*3 array of uint8
     projected: np.ndarray,  # n*3 array of float64, projection to plane of best fit
@@ -242,52 +285,28 @@ def plot_correspondences(
 
 
 def plot_reduction_planar(
-    colour_dict: dict[str, bytes],
-    colour_strs: typing.Sequence[str],
-    projection: np.ndarray,
-    projected: np.ndarray,
+    colour_names: typing.Iterable[str],  # friendly colour names
+    colour_strs: typing.Sequence[str],  # HTML-like codes for original colours
+    projection: np.ndarray,  # 4*2 rgb->uv homogeneous
+    projected: np.ndarray,   # n*2 uv projected colours
 ) -> plt.Axes:
+    """Plot points projected into u,v space. Currently the individual points make sense
+    but the inferred colour plane doesn't."""
     fig, ax = plt.subplots()
 
-    '''
-    Solve backward for colour plane:
-    If 
-    [rgb1] [ae] = [uv]
-    [rgb1] [bf]   [uv]
-    [rgb1] [cg]   [uv]
-    [rgb1] [dh]   [uv]
-    [rgb1]        [uv]
-    [rgb1]        [uv]
-    and abcdefgh and uv are known,
-    [abcd][rrrrrrr] = [uuuuuuu]
-    [efgh][ggggggg]   [vvvvvvv]
-          [bbbbbbb]
-          [1111111]
-    '''
-    uv_series = np.linspace(start=0, stop=1, num=11)
-    uv = np.stack(
-        np.meshgrid(uv_series, uv_series),
-        axis=0,
-    )
-    deprojected, residuals, rank, singular = np.linalg.lstsq(
-        a=projection.T, b=uv.reshape((2, -1)), rcond=None,
-    )
-    if rank != 2:
-        raise ValueError(f'Deficient rank {rank}')
     rgb = (
-        deprojected[:3]
+        antiprojection(projection)
+        .transpose(1, 2, 0)
         .clip(min=0, max=255).round()
         .astype(np.uint8)
-        .T.reshape(uv.shape[1:] + (3,))
     )
-
     ax.imshow(rgb, extent=(0, 1, 0, 1), origin='lower')
     ax.scatter(
         projected[:, 0],
         projected[:, 1],
         c=colour_strs,
     )
-    for name, pos in zip(colour_dict.keys(), projected):
+    for name, pos in zip(colour_names, projected):
         ax.text(*pos, name)
     return ax
 
@@ -337,6 +356,10 @@ def demo_reduction(
         colour_dict=colour_dict, colours=colours,
         p00='black', p01='green', p10='ochre', p11='white',
     )
+    plot_reduction_planar(
+        colour_names=colour_dict.keys(), colour_strs=colour_strs, projection=projection,
+        projected=projected,
+    )
     plot_delaunay_gouraud(
         colours=colours, colour_dict=colour_dict, colour_strs=colour_strs,
         projected=projected,
@@ -380,4 +403,4 @@ def demo(lp_reduction: bool = True) -> None:
     plt.show()
 
 
-demo(False)
+demo(True)
