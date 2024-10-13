@@ -71,6 +71,7 @@ def get_corner_idx(
 
 def fit_project_linprog(
     colours: np.ndarray,     # n*3 rgb colours
+    corner_targets: np.ndarray,
     corner_idx: np.ndarray,  # indices of the colour corners
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -88,7 +89,6 @@ def fit_project_linprog(
     """
 
     n = len(colours)
-    corner_targets = np.array(((0,0), (0,1), (1,0), (1,1)))
     directions = 1 - 2*corner_targets.T  # cost coefficients, 1 or -1
 
     '''
@@ -279,7 +279,7 @@ def plot_reduction_planar(
     colours: np.ndarray,  # n*3 array of uint8
     colour_names: typing.Collection[str],  # friendly colour names
     colour_strs: typing.Sequence[str],   # HTML-like codes for original colours
-    antiprojection: np.ndarray,          # 3x3 uv->rgb
+    antiprojection: np.ndarray,          # 3x3 uv1->rgb
     projected: np.ndarray,  # n*2 uv projected colours
 ) -> plt.Axes:
     """Plot points projected into u,v space."""
@@ -313,11 +313,23 @@ def plot_delaunay_gouraud(
     colours: np.ndarray,  # n*3 array of uint8
     colour_names: typing.Collection[str],  # friendly colour names
     colour_strs: typing.Sequence[str],   # HTML-like codes for original colours
+    corner_targets: np.ndarray,
+    antiprojection: np.ndarray,    # 3x3 uv1->rgb
     projected: np.ndarray,  # n*2 uv projected colours
 ) -> plt.Axes:
     fig, ax = plt.subplots()
-    delaunay = Triangulation(*projected.T)
-    mesh = TriMesh(triangulation=delaunay, color=colour_strs)
+    missing_corners = corner_targets[~(
+        projected[np.newaxis, ::] == corner_targets[:, np.newaxis, :]
+    ).all(axis=2).any(axis=1)]
+    projected_with_corners = np.concatenate((projected, missing_corners), axis=0)
+
+    corner_rgb = (
+        np.hstack((missing_corners, np.ones((len(missing_corners), 1)))) @ antiprojection
+    ).clip(min=0, max=255).astype(np.uint8)
+    all_strs = colour_strs + triples_to_hex(corner_rgb)
+
+    delaunay = Triangulation(*projected_with_corners.T)
+    mesh = TriMesh(triangulation=delaunay, color=all_strs)
     ax.add_collection(mesh)
 
     plot_labels(ax=ax, colours=colours, projected=projected, names=colour_names)
@@ -356,12 +368,13 @@ def demo_reduction(
         colour_names=colour_dict.keys(),
         p00='black', p01='green', p10='ochre', p11='white',
     )
+    corner_targets = np.array(((0, 0), (0, 1), (1, 0), (1, 1)))
 
     projection, projected = fit_project_linprog(
-        colours=colours, corner_idx=corner_idx,
+        colours=colours, corner_idx=corner_idx, corner_targets=corner_targets,
     )
     antiprojection = get_antiprojection(
-        colours=colours, projected=projected, corner_idx=corner_idx,
+        colours=colours, corner_idx=corner_idx, projected=projected,
     )
     plot_reduction_planar(
         colours=colours, colour_names=colour_dict.keys(), colour_strs=colour_strs,
@@ -369,7 +382,7 @@ def demo_reduction(
     )
     plot_delaunay_gouraud(
         colours=colours, colour_names=colour_dict.keys(), colour_strs=colour_strs,
-        projected=projected,
+        projected=projected, antiprojection=antiprojection, corner_targets=corner_targets,
     )
 
 
