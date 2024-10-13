@@ -179,33 +179,44 @@ def plot_2d(
 ) -> plt.Axes:
     """Plot two locii: the original rgb `colours` and the `projected` colours
     on the plane of best fit. The 2D plot projection is not the projection of
-    best fit, but the green-blue plane.
-    """
+    best fit, but the green-blue plane. The original colours are not outlined.
+    The projected colours get thin black outlines because otherwise they would
+    not be visible against the rendered projection plane."""
     ax: plt.Axes
     fig, ax = plt.subplots()
     rgb = rgb_grid.astype(np.uint8)
     ax.imshow(rgb, extent=(0, 255, 0, 255), origin='lower')
-    ax.scatter(colours[:, 1], colours[:, 2], c=colour_strs)
+    ax.scatter(colours[:, 1], colours[:, 2], c=colour_strs, label='original')
     ax.scatter(
-        projected[:, 1], projected[:, 2], edgecolors='black', linewidths=0.2,
-        c=proj_strs,
+        projected[:, 1], projected[:, 2], c=proj_strs, label='projected',
+        edgecolors='black', linewidths=0.3,
     )
     ax.set_title('RGB coordinate system, plane of best fit')
     ax.set_xlabel('green')
     ax.set_ylabel('blue')
+    leg = ax.legend()
+    handles: list[plt.PathCollection] = leg.legend_handles
+    handles[0].set_facecolor('orange')
+    handles[1].set_facecolor('orange')
     return ax
 
 
 def plot_3d(
-    colours: np.ndarray, projected: np.ndarray, colour_dict: dict[str, bytes],
-    colour_strs: tuple[str, ...], proj_strs: tuple[str, ...],
+    colours: np.ndarray,    # n*3 array of uint8
+    projected: np.ndarray,  # n*3 array of float64, projection to plane of best fit
+    colour_names: typing.Iterable[str],  # friendly colour names
+    colour_strs: typing.Sequence[str],  # HTML-like codes for original colours
+    proj_strs: typing.Sequence[str],    # HTML-like codes for projected colours
 ) -> Axes3D:
+    """Plot two locii: the original rgb `colours` and the `projected` colours
+    on the plane of best fit. Unlike in the 2D case, the plane itself is not rendered."""
     fig, ax = plt.subplots(subplot_kw={'projection': '3d'})
     ax: Axes3D
     ax.scatter3D(*colours.T, c=colour_strs, depthshade=False)
     ax.scatter3D(*projected.T, c=proj_strs, depthshade=False)
-    for name, pos in zip(colour_dict.keys(), colours):
+    for name, pos in zip(colour_names, colours):
         ax.text(*pos, name)
+    ax.set_title('Projection to plane of best fit')
     ax.set_xlabel('red')
     ax.set_ylabel('green')
     ax.set_zlabel('blue')
@@ -213,17 +224,19 @@ def plot_3d(
 
 
 def plot_correspondences(
-    ax2: plt.Axes, ax3: Axes3D, colours: np.ndarray, projected: np.ndarray,
+    ax2: plt.Axes,  # 2D axes (green-blue projection)
+    ax3: Axes3D,    # RGB axes
+    colours: np.ndarray,    # n*3 array of uint8
+    projected: np.ndarray,  # n*3 array of float64, projection to plane of best fit
 ) -> None:
+    """For both 2D and 3D axes, plot lines between original and projected points"""
     for orig, proj in zip(colours, projected):
         ax2.plot(
             [orig[1], proj[1]], [orig[2], proj[2]],
             c='black',
         )
         ax3.plot(
-            [orig[0], proj[0]],
-            [orig[1], proj[1]],
-            [orig[2], proj[2]],
+            [orig[0], proj[0]], [orig[1], proj[1]], [orig[2], proj[2]],
             c='black',
         )
 
@@ -309,7 +322,7 @@ def demo_planar(
 
     ax2 = plot_2d(colours=colours, projected=projected, rgb_grid=rgb_float,
                   colour_strs=colour_strs, proj_strs=proj_strs)
-    ax3 = plot_3d(colours=colours, projected=projected, colour_dict=colour_dict,
+    ax3 = plot_3d(colours=colours, projected=projected, colour_names=colour_dict.keys(),
                   colour_strs=colour_strs, proj_strs=proj_strs)
     plot_correspondences(ax2=ax2, ax3=ax3, colours=colours, projected=projected)
 
