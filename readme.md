@@ -19,24 +19,35 @@ python -m mycota -h
 Example queries
 ---------------
 
-Basic SQLite queries:
+Here are some basic SQLite queries. Since the database also supports full text search (FTS), these
+can sometimes be more difficult to write or produce unintuitive results. 
 
 ```sql
+-- Non-FTS queries that use `like` are case-sensitive by default. Only title and name have capital letters.
+-- Non-FTS `like` is the only way to do substring search.
 select title, name, whichGills from mycota where lower(name) like '%tricholoma%';
 
--- Will occlude some columns based on your terminal width
- select * from mycota where whichGills = 'free';
+-- Search where whichGills is _only_ 'free' and no other values.
+-- The output is wide, so this will occlude some columns based on your terminal width.
+select * from mycota where whichGills = 'free';
 
-select title, sporePrintColor1, sporePrintColor2 from mycota where hymeniumType = 'gleba';
+-- hymeniumType is a non-aggregate field so these semantics are simple.
+select title, sporePrintColor from mycota where hymeniumType = 'gleba';
 
+-- group by an aggregate field, so show _all_ combinations of ecologicalType where there is at least one stipeCharacter
 select count(1), ecologicalType from mycota where stipeCharacter is not null group by ecologicalType;
 
+-- query on two simple fields and show the coalesce necessary to account for nulls.
+-- Using an equivalent FTS form is easier than this.
 select title, eat from (
-    select title, lower(coalesce(howEdible1, '') || ' ' || coalesce(howEdible2, '')) as eat
+    select title, coalesce(howEdible1, '') || ' ' || coalesce(howEdible2, '') as eat
     from mycota
 ) where eat like '%choice%';
 
--- Feeling lucky?
+-- another rough equivalent to above
+select title, howEdible1, howEdible2 from mycota where howEdible1='choice' or howEdible2='choice';
+
+-- Feeling lucky? Edibility defined but whichGills and capShape undefined.
 select title, howEdible1, howEdible2 from mycota 
 where howEdible1 is not null and howEdible2 is not null and whichGills is null and capShape is null;
 ```
