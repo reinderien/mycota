@@ -49,7 +49,7 @@ Briefly,
 - it's a query sub-language that exists in string literals;
 - all query keywords are case-sensitive CAPITALS;
 - all data are case-insensitive;
-- it does not perform substring searches; and
+- it does not perform sub-token searches, only token searches; and
 - you can search over multiple (even all) columns by writing the table name before `match`.
 
 ```sql
