@@ -127,7 +127,12 @@ def dump_schema(conn: sqlite3.Connection) -> str:
 
 def dump_cols(conn: sqlite3.Connection) -> typing.Iterable[str]:
     pd.options.display.max_rows = None  # type: ignore  # stub is wrong
-    cur = conn.execute("select name from pragma_table_info('mycota')")
+    cur = conn.execute('''
+        select name from pragma_table_info('mycota')
+        -- exclude known generated columns
+        where name not in ('capShape', 'ecologicalType', 'howEdible', 'sporePrintColor', 'stipeCharacter', 'whichGills')
+        order by name
+    ''')
     try:
         for column, in cur.fetchall():
             if column not in {'pageid', 'name', 'title'}:
