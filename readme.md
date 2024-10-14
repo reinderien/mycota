@@ -23,6 +23,9 @@ Here are some basic SQLite queries. Since the database also supports full text s
 can sometimes be more difficult to write or produce unintuitive results. 
 
 ```sql
+-- Name and title are not always the same.
+select name, title from mycota where name <> title;
+
 -- Non-FTS queries that use `like` are case-sensitive by default. Only title and name have capital letters.
 -- Non-FTS `like` is the only way to do substring search.
 select title, name, whichGills from mycota where lower(name) like '%tricholoma%';
@@ -70,7 +73,7 @@ select title, howEdible from mycota where howEdible match 'choice deadly';
 -- title contains token 'esculenta'
 select title, howEdible from mycota where mycota match 'esculenta';
 
--- search for either of two genera
+-- search for either of two genera from either name or title
 select title, ecologicalType from mycota where mycota match '({name title}: amanita) OR ({name title}: leucocoprinus)'
 ```
 
