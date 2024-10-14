@@ -57,18 +57,21 @@ Full text search queries are also possible using the syntax from the
 
 Briefly,
 
-- it's a query sub-language that exists in string literals;
+- it's a query sub-language that must be written in string literals;
 - all query keywords are case-sensitive CAPITALS;
-- all data are case-insensitive;
+- all column data are case-insensitive;
 - it does not perform sub-token searches, only token searches; and
-- you can search over multiple (even all) columns by writing the table name before `match`.
+- you can search over multiple (even all) columns by writing the table name (`mycota`) before `match`.
 
 ```sql
-select title, howEdible from mycota where howEdible match 'NEAR(choice deadly)';
+-- howEdible contains at least one of each token in this phrase
+select title, howEdible from mycota where howEdible match 'choice deadly';
 
+-- title contains token 'esculenta'
 select title, howEdible from mycota where mycota match 'esculenta';
 
-select title, howEdible from mycota where mycota match '({name title}: amanita) AND ({howEdible}: edible)' 
+-- search for either of two genera
+select title, ecologicalType from mycota where mycota match '({name title}: amanita) OR ({name title}: leucocoprinus)'
 ```
 
 Schema
